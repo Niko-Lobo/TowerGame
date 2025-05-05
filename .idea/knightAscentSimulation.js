@@ -19,32 +19,32 @@ var SPEED_MODES = {
     "Swift": 10
 };
 
-// Мистический Бонус (Маг) parameters
+// Мистический бонус (Маг) parameters
 var MYSTIC_COST_MULTIPLIER = 10; // Used in previous cost calculation, now replaced
 var MYSTIC_JUMP_STEPS = 15; // Target jump for Mystic bonus
 var MYSTIC_JUMP_DISTRIBUTION = [
-    [5, 10, 0.194],  // Smaller jumps (5 to 10 steps above current) - adjusted
-    [11, 14, 0.291],  // Slightly below target (11 to 14 steps) - adjusted
-    [15, 15, 0.291],  // Target jump (15 steps) - adjusted
-    [16, 20, 0.1455], // Slightly above target (16 to 20 steps) - adjusted
-    [21, 25, 0.0485], // Larger jumps (21 to 25 steps) - adjusted
-    ["max", "max", 0.01], // Jump to step 100 (1% chance)
-    [85, 99, 0.02] // Jump to steps 85-99 (2% chance)
+    [5, 10, 0.1994],  // Smaller jumps (5 to 10 steps above current) - adjusted
+    [11, 14, 0.2991],  // Slightly below target (11 to 14 steps) - adjusted
+    [15, 15, 0.2991],  // Target jump (15 steps) - adjusted
+    [16, 20, 0.14955], // Slightly above target (16 to 20 steps) - adjusted
+    [21, 25, 0.04985], // Larger jumps (21 to 25 steps) - adjusted
+    ["max", "max", 0.001], // Jump to step 100 (0.1% chance)
+    [85, 99, 0.002] // Jump to steps 85-99 (0.2% chance)
 ];
 
-// Драконий Бонус parameters
+// Драконий бонус parameters
 var DRAGON_COST_MULTIPLIER = 20; // Used in previous cost calculation, now replaced
 var DRAGON_CRASH_PROB = 0.5; // 50% failure chance
 var DRAGON_JUMP_STEPS = 25; // Target jump for Dragon bonus
 var DRAGON_JUMP_DISTRIBUTION = [
-    [10, 15, 0.1455], // Smaller jumps (10 to 15 steps above current) - adjusted
-    [16, 20, 0.194],  // Below target (16 to 20 steps) - adjusted
-    [21, 24, 0.2425], // Slightly below target (21 to 24 steps) - adjusted
-    [25, 25, 0.2425], // Target jump (25 steps) - adjusted
-    [26, 30, 0.097],  // Slightly above target (26 to 30 steps) - adjusted
-    [31, 40, 0.0485], // Larger jumps (31 to 40 steps) - adjusted
-    ["max", "max", 0.01], // Jump to step 100 (1% chance)
-    [85, 99, 0.02] // Jump to steps 85-99 (2% chance)
+    [10, 15, 0.1491], // Smaller jumps (10 to 15 steps above current) - adjusted
+    [16, 20, 0.1988],  // Below target (16 to 20 steps) - adjusted
+    [21, 24, 0.2485], // Slightly below target (21 to 24 steps) - adjusted
+    [25, 25, 0.2485], // Target jump (25 steps) - adjusted
+    [26, 30, 0.0994],  // Slightly above target (26 to 30 steps) - adjusted
+    [31, 40, 0.0497], // Larger jumps (31 to 40 steps) - adjusted
+    ["max", "max", 0.002], // Jump to step 100 (0.2% chance)
+    [85, 99, 0.004] // Jump to steps 85-99 (0.4% chance)
 ];
 
 // Bonus RTP target
