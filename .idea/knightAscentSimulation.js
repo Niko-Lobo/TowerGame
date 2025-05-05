@@ -3,12 +3,13 @@ var fs = require('fs');
 
 // Game parameters
 var TOTAL_STEPS = 100;
-var LAMBDA_CRASH = 0.101; // Adjusted to achieve ~10% crash probability at step 1
+var LAMBDA_CRASH = 0.101; // Adjusted previously
 var MULTIPLIER_BASE = Math.pow(15000, 1/100); // Adjusted to reach 15,000x at step 100 (~1.0946)
 var BASE_STAKE = 1.0; // Base stake for betting
-var TARGET_RTP = 0.97; // Target RTP of 97%
+var TARGET_RTP = 0.97; // Target RTP of the game (97%)
 var CRASH_BEYOND_RANGE_PROB = 0.0001; // 0.01% chance for crash point to be 101
 var MULTIPLIER_CSV_FILE = "multiplier_array.csv";
+var BONUS_ROUNDS_CSV_FILE = "bonus_rounds.csv"; // CSV file for bonus rounds
 var TARGET_MAX_MULTIPLIER = 15000.0; // Target multiplier at step 100
 
 // Speed modes
@@ -19,20 +20,35 @@ var SPEED_MODES = {
 };
 
 // Мистический Бонус (Маг) parameters
-var MYSTIC_COST_MULTIPLIER = 10;
+var MYSTIC_COST_MULTIPLIER = 10; // Used in previous cost calculation, now replaced
+var MYSTIC_JUMP_STEPS = 15; // Target jump for Mystic bonus
 var MYSTIC_JUMP_DISTRIBUTION = [
-    [0, 45, 0.95],
-    [46, 99, 0.0499],
-    [100, 100, 0.0001]
+    [5, 10, 0.194],  // Smaller jumps (5 to 10 steps above current) - adjusted
+    [11, 14, 0.291],  // Slightly below target (11 to 14 steps) - adjusted
+    [15, 15, 0.291],  // Target jump (15 steps) - adjusted
+    [16, 20, 0.1455], // Slightly above target (16 to 20 steps) - adjusted
+    [21, 25, 0.0485], // Larger jumps (21 to 25 steps) - adjusted
+    ["max", "max", 0.01], // Jump to step 100 (1% chance)
+    [85, 99, 0.02] // Jump to steps 85-99 (2% chance)
 ];
 
 // Драконий Бонус parameters
-var DRAGON_COST_MULTIPLIER = 20;
-var DRAGON_CRASH_PROB = 0.2;
+var DRAGON_COST_MULTIPLIER = 20; // Used in previous cost calculation, now replaced
+var DRAGON_CRASH_PROB = 0.5; // 50% failure chance
+var DRAGON_JUMP_STEPS = 25; // Target jump for Dragon bonus
 var DRAGON_JUMP_DISTRIBUTION = [
-    [20, 99, 0.9999],
-    [100, 100, 0.0001]
+    [10, 15, 0.1455], // Smaller jumps (10 to 15 steps above current) - adjusted
+    [16, 20, 0.194],  // Below target (16 to 20 steps) - adjusted
+    [21, 24, 0.2425], // Slightly below target (21 to 24 steps) - adjusted
+    [25, 25, 0.2425], // Target jump (25 steps) - adjusted
+    [26, 30, 0.097],  // Slightly above target (26 to 30 steps) - adjusted
+    [31, 40, 0.0485], // Larger jumps (31 to 40 steps) - adjusted
+    ["max", "max", 0.01], // Jump to step 100 (1% chance)
+    [85, 99, 0.02] // Jump to steps 85-99 (2% chance)
 ];
+
+// Bonus RTP target
+var BONUS_RTP = 0.95; // Target RTP for bonuses (95%)
 
 // Load or generate multiplier array with pure geometric progression
 function loadOrGenerateMultiplierArray() {
@@ -127,6 +143,24 @@ function getMultiplier(step) {
     return multiplier_array[step];
 }
 
+function calculateBonusCost(step, bonus_type) {
+    var target_jump = (bonus_type === "Mystic") ? MYSTIC_JUMP_STEPS : DRAGON_JUMP_STEPS;
+    // Check if the bonus can be activated at this step
+    if (step + target_jump >= TOTAL_STEPS) {
+        return "N/A"; // Bonus cannot be activated
+    }
+    var target_step = Math.min(step + target_jump, TOTAL_STEPS);
+    var current_multiplier = getMultiplier(step);
+    var target_multiplier = getMultiplier(target_step);
+    var cost = (target_multiplier - current_multiplier) / BONUS_RTP;
+    return cost;
+}
+
+function getFreeBonusProbability(step) {
+    // Linearly decreasing probability from 5% at step 0 to 0% at step 10
+    return 0.05 * Math.max(0, (10 - step) / 10);
+}
+
 function generateCrashStep() {
     var u = Math.random();
     if (u < crash_probabilities.reduce((sum, prob) => sum + prob, 0)) { // Crash occurs at steps 1 to 100
@@ -189,12 +223,23 @@ function simulateBonusJump(current_step, bonus_type) {
         cumulative_prob += prob;
         if (u <= cumulative_prob) {
             let jump;
-            if (start === end) { // Exact step (e.g., step 100)
-                jump = Math.min(start - current_step, max_jump);
+            if (start === "max" && end === "max") {
+                // Special case: jump to step 100
+                jump = TOTAL_STEPS - current_step;
+            } else if (start === 85 && end === 99) {
+                // Jump to high win area (steps 85-99)
+                var min_step = Math.max(85, current_step + 1); // Ensure we jump forward
+                var max_step = 99;
+                if (min_step > max_step) {
+                    return { newStep: current_step, crashed: false }; // Invalid range, no jump
+                }
+                jump = Math.floor(Math.random() * (max_step - min_step + 1)) + min_step - current_step;
+            } else if (start === end) { // Exact step (e.g., target jump)
+                jump = Math.min(start, max_jump);
             } else {
                 // Ensure the range for randint is valid
-                var min_jump = Math.max(0, start - current_step);
-                var max_jump_range = Math.min(end - current_step, max_jump);
+                var min_jump = Math.max(0, start);
+                var max_jump_range = Math.min(end, max_jump);
                 if (min_jump > max_jump_range) {
                     // If the range is invalid, skip the jump (treat as no jump)
                     return { newStep: current_step, crashed: false };
@@ -207,43 +252,93 @@ function simulateBonusJump(current_step, bonus_type) {
     return { newStep: current_step, crashed: false }; // Fallback (shouldn't happen)
 }
 
-function simulateRound(speed_mode, simulation_mode) {
+function simulateRound(speed_mode, simulation_mode, game_number) {
     var speed = SPEED_MODES[speed_mode];
-    let crash_step = generateCrashStep(); // Already using let, can reassign
+    let crash_step = generateCrashStep();
     var cashout_step = Math.floor(Math.random() * (TOTAL_STEPS + 1)); // Random cashout point between 0 and 100
     let current_step = 0;
     let total_cost = BASE_STAKE; // Initial cost is the base stake
     let total_winnings = 0;
     let used_bonus = null;
+    let bonus_rounds = []; // Array to store data for each bonus round in this game
 
     while (current_step < TOTAL_STEPS) {
         // Decide to use a bonus based on simulation mode
-        var bonus_triggered = Math.random() < 0.1; // 10% chance to use a bonus
+        var bonus_triggered = false;
+        var free_bonus = false;
         let bonus_type = null;
 
         if (simulation_mode === "Base") {
-            bonus_triggered = false; // No bonuses in Base mode
-        } else if (simulation_mode === "Mystic" && bonus_triggered) {
-            bonus_type = "Mystic";
-        } else if (simulation_mode === "Dragon" && bonus_triggered) {
-            bonus_type = "Dragon";
+            // In Normal mode, small chance of a free bonus, mostly in the beginning
+            var free_bonus_prob = getFreeBonusProbability(current_step);
+            if (Math.random() < free_bonus_prob) {
+                bonus_triggered = true;
+                free_bonus = true;
+                // Randomly choose Mystic or Dragon bonus
+                bonus_type = Math.random() < 0.5 ? "Mystic" : "Dragon";
+                // Check if the bonus can be activated at this step
+                var target_jump = (bonus_type === "Mystic") ? MYSTIC_JUMP_STEPS : DRAGON_JUMP_STEPS;
+                if (current_step + target_jump >= TOTAL_STEPS) {
+                    bonus_triggered = false; // Cannot activate bonus at this step
+                    bonus_type = null;
+                }
+            }
+        } else if (simulation_mode === "Mystic") {
+            bonus_triggered = Math.random() < 0.5; // 50% chance as per previous update
+            // Mystic bonus can only be activated if current_step + MYSTIC_JUMP_STEPS < TOTAL_STEPS
+            if (bonus_triggered && current_step + MYSTIC_JUMP_STEPS < TOTAL_STEPS) {
+                bonus_type = "Mystic";
+            }
+        } else if (simulation_mode === "Dragon") {
+            bonus_triggered = Math.random() < 0.5; // 50% chance as per previous update
+            // Dragon bonus can only be activated if current_step + DRAGON_JUMP_STEPS < TOTAL_STEPS
+            if (bonus_triggered && current_step + DRAGON_JUMP_STEPS < TOTAL_STEPS) {
+                bonus_type = "Dragon";
+            }
         }
 
-        if (bonus_type) {
-            var current_multiplier = getMultiplier(current_step);
+        if (bonus_triggered && bonus_type) {
             if (current_step >= TOTAL_STEPS) {
                 break; // Prevent further bonuses if at the top
             }
-            if (bonus_type === "Mystic") {
-                cost = BASE_STAKE * current_multiplier * MYSTIC_COST_MULTIPLIER;
-            } else { // Dragon
-                cost = BASE_STAKE * current_multiplier * DRAGON_COST_MULTIPLIER;
-            }
+
+            // Calculate the cost based on the target jump (0 if free bonus)
+            var target_jump = (bonus_type === "Mystic") ? MYSTIC_JUMP_STEPS : DRAGON_JUMP_STEPS;
+            var target_step = Math.min(current_step + target_jump, TOTAL_STEPS);
+            var current_multiplier = getMultiplier(current_step);
+            var target_multiplier = getMultiplier(target_step);
+            var cost = free_bonus ? 0 : (target_multiplier - current_multiplier) / BONUS_RTP; // Cost to achieve 95% RTP
             total_cost += cost;
 
+            // Store the original crash point before the jump
+            var original_crash_point = crash_step;
+            var redistributed_crash_point = "N/A"; // Default if no redistribution occurs
+
             var { newStep, crashed } = simulateBonusJump(current_step, bonus_type);
+
+            // Calculate RTP for this bonus round
+            var payout = crashed ? 0 : getMultiplier(newStep);
+            var bonus_rtp = cost > 0 ? (payout / cost) * 100 : (payout > 0 ? Infinity : 0);
+
+            // Check if the bonus jump skipped the crash point and redistributed it
+            if (!crashed && crash_step > current_step && crash_step <= newStep) {
+                crash_step = generateNewCrashStep(newStep);
+                redistributed_crash_point = crash_step;
+            }
+
+            // Log the bonus round data
+            bonus_rounds.push({
+                game_number: game_number,
+                current_step: current_step,
+                result_step: crashed ? current_step : newStep,
+                cost: cost,
+                rtp: bonus_rtp,
+                game_crush_point: original_crash_point,
+                redistributed_crush_point: redistributed_crash_point
+            });
+
             if (crashed) {
-                return { total_winnings, total_cost, final_step: current_step, outcome: "Crashed (Dragon Bonus)", used_bonus: bonus_type, crash_point: crash_step, cashout_point: cashout_step };
+                return { total_winnings, total_cost, final_step: current_step, outcome: "Crashed (Dragon Bonus)", used_bonus: bonus_type, crash_point: crash_step, cashout_point: cashout_step, bonus_rounds };
             }
 
             // Check if the bonus jump skipped the cashout point
@@ -251,13 +346,8 @@ function simulateRound(speed_mode, simulation_mode) {
                 // If crash point is further, player cashes out and wins
                 if (crash_step > cashout_step) {
                     total_winnings = BASE_STAKE * getMultiplier(cashout_step);
-                    return { total_winnings, total_cost, final_step: cashout_step, outcome: "Cashed out", used_bonus, crash_point: crash_step, cashout_point: cashout_step };
+                    return { total_winnings, total_cost, final_step: cashout_step, outcome: "Cashed out", used_bonus, crash_point: crash_step, cashout_point: cashout_step, bonus_rounds };
                 }
-            }
-
-            // Check if the bonus jump skipped the crash point
-            if (crash_step > current_step && crash_step <= newStep) {
-                crash_step = generateNewCrashStep(newStep); // Now valid since crash_step is let
             }
 
             current_step = newStep;
@@ -272,13 +362,13 @@ function simulateRound(speed_mode, simulation_mode) {
             // If crash point is further, player cashes out and wins
             if (crash_step > cashout_step) {
                 total_winnings = BASE_STAKE * getMultiplier(cashout_step);
-                return { total_winnings, total_cost, final_step: cashout_step, outcome: "Cashed out", used_bonus, crash_point: crash_step, cashout_point: cashout_step };
+                return { total_winnings, total_cost, final_step: cashout_step, outcome: "Cashed out", used_bonus, crash_point: crash_step, cashout_point: cashout_step, bonus_rounds };
             }
         }
 
         // Check if the crash occurs during the move
         if (crash_step <= next_step) {
-            return { total_winnings, total_cost, final_step: current_step, outcome: "Crashed during move", used_bonus, crash_point: crash_step, cashout_point: cashout_step };
+            return { total_winnings, total_cost, final_step: current_step, outcome: "Crashed during move", used_bonus, crash_point: crash_step, cashout_point: cashout_step, bonus_rounds };
         }
 
         current_step = next_step;
@@ -288,9 +378,9 @@ function simulateRound(speed_mode, simulation_mode) {
     // Check if cashout point is 100 or crash point is 101
     if (crash_step > cashout_step || crash_step === TOTAL_STEPS + 1) {
         total_winnings = BASE_STAKE * getMultiplier(TOTAL_STEPS);
-        return { total_winnings, total_cost, final_step: TOTAL_STEPS, outcome: "Reached the top", used_bonus, crash_point: crash_step, cashout_point: cashout_step };
+        return { total_winnings, total_cost, final_step: TOTAL_STEPS, outcome: "Reached the top", used_bonus, crash_point: crash_step, cashout_point: cashout_step, bonus_rounds };
     } else {
-        return { total_winnings, total_cost, final_step: current_step, outcome: "Crashed during move", used_bonus, crash_point: crash_step, cashout_point: cashout_step };
+        return { total_winnings, total_cost, final_step: current_step, outcome: "Crashed during move", used_bonus, crash_point: crash_step, cashout_point: cashout_step, bonus_rounds };
     }
 }
 
@@ -305,6 +395,25 @@ function simulateGame(num_rounds, simulation_mode) {
     console.log(`Crash at Step 101: ${(prob_crash_101 * 100).toFixed(7)}%`);
     console.log("-".repeat(20));
     console.log(`Sum of Probabilities: ${((crash_probabilities.reduce((sum, prob) => sum + prob, 0) + prob_crash_101) * 100).toFixed(2)}%`);
+
+    // Print bonus costs table
+    console.log("\nBonus Costs by Step:");
+    console.log("Step | Mystic Bonus Cost | Dragon Bonus Cost");
+    console.log("-".repeat(50));
+    for (let step = 0; step < TOTAL_STEPS; step++) {
+        var mystic_cost = calculateBonusCost(step, "Mystic");
+        var dragon_cost = calculateBonusCost(step, "Dragon");
+        console.log(
+            `${step.toString().padStart(4)} | ` +
+            `${typeof mystic_cost === "string" ? "N/A".padStart(17) : "$" + mystic_cost.toFixed(2).padStart(16)} | ` +
+            `${typeof dragon_cost === "string" ? "N/A".padStart(17) : "$" + dragon_cost.toFixed(2).padStart(16)}`
+        );
+    }
+    console.log("-".repeat(50));
+
+    // Initialize CSV file for bonus rounds (overwrite existing file)
+    var csvContent = "Game Number,Current Step,Result Step,Cost,RTP,Game Crush Point,Redistributed Crush Point\n";
+    fs.writeFileSync(BONUS_ROUNDS_CSV_FILE, csvContent, 'utf8');
 
     console.log(`\nSimulating ${num_rounds} rounds in ${simulation_mode} mode...`);
 
@@ -333,7 +442,7 @@ function simulateGame(num_rounds, simulation_mode) {
         var speed_mode = Object.keys(SPEED_MODES)[Math.floor(Math.random() * 3)];
         speed_mode_counts[speed_mode]++;
 
-        var { total_winnings: winnings, total_cost: cost, final_step, outcome, used_bonus, crash_point, cashout_point } = simulateRound(speed_mode, simulation_mode);
+        var { total_winnings: winnings, total_cost: cost, final_step, outcome, used_bonus, crash_point, cashout_point, bonus_rounds } = simulateRound(speed_mode, simulation_mode, round_num);
         total_winnings += winnings;
         total_cost += cost;
         total_steps += final_step;
@@ -357,6 +466,12 @@ function simulateGame(num_rounds, simulation_mode) {
             reached_top++;
             // Reached top counts as a cashout at step 100
             cashout_counts[TOTAL_STEPS]++;
+        }
+
+        // Append bonus round data to CSV
+        for (var bonus of bonus_rounds) {
+            var csvLine = `${bonus.game_number},${bonus.current_step},${bonus.result_step},${bonus.cost.toFixed(2)},${bonus.rtp.toFixed(2)},${bonus.game_crush_point},${bonus.redistributed_crush_point}\n`;
+            fs.appendFileSync(BONUS_ROUNDS_CSV_FILE, csvLine, 'utf8');
         }
 
         if (round_num % 100000 === 0 || round_num === num_rounds) { // Print progress for large simulations
